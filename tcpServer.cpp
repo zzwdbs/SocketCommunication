@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <arpa/inet.h>
 #include <string.h>
 
 #define PROTOPORT 20004 /* default protocol port number           */
@@ -110,7 +111,7 @@ int main(int argc, char *argv[])
   {
     lenbuf = 1448;
   }
-  echobuf = malloc(lenbuf * sizeof(int));
+  echobuf = (char*)malloc(lenbuf * sizeof(int));
   if (echobuf == NULL)
   {
     fprintf(stderr, "echo buffer not created, size %s\n", argv[2]);

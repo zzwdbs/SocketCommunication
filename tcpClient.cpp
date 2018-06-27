@@ -112,13 +112,13 @@ int main(int argc, char *argv[])
   {
     lenbuf = 1448;
   }
-  sendbuf = malloc(lenbuf * sizeof(int));
+  sendbuf = (char*)malloc(lenbuf * sizeof(int));
   if (sendbuf == NULL)
   {
     fprintf(stderr, "send buffer not created, size %s\n", argv[5]);
     exit(1);
   }
-  recvbuf = malloc(lenbuf * sizeof(int));
+  recvbuf = (char*)malloc(lenbuf * sizeof(int));
   if (recvbuf == NULL)
   {
     fprintf(stderr, "receive buffer not created size %s\n", argv[5]);
