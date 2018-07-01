@@ -8,24 +8,32 @@
 #include <unistd.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <regex.h>
+#include <ctype.h>
 
-#define PROTOPORT 20004 /* default protocol port number           */
+#define PROTOPORT 33455 /* default protocol port number           */
+#define BUFSIZE 1440 /* default buffer size for ipv4 */
+#define MAX_MSG_LEN 50 /* maximun message lenghth */
 
 extern int errno;
-char localhost[] = "localhost"; /* default host name             */
+char LOCALHOST[] = "localhost"; /* default host name             */
+char DEFAULTFILE[] = "fileToTransfer"; /* default file name */
+
+/* function declarations */
+void safeExit(FILE* outfile, char* sendbuf, char* recvbuf, int code);
+
 /*------------------------------------------------------------------------
- * Program:   tcpechoclient
+ * Program:   tcpClient
  *
  * Purpose:   allocate a socket, connect to a server, open a file, 
  *            send the contents of the file through the socket to the
  *            echo server, read the echoed data from the socket and 
  *            write it into an output file
  *
- * Syntax:    tcpechoclient [[[[host [port]] [hostl]] [infile]] [outfile]] 
+ * Syntax:    tcpClient [[[[host [port]] [hostl]] [outfile]] [lenbuf]] 
  *       host        - name of a host on which server is executing
  *       port        - protocol port number server is using
- *       infile      - input file containing data to be echoed
- *       outfile     - output file into which echoed data is to be written
+ *       outfile      - name of the file to request from server
  *       hostl       - name of host on which the client is executing
  *                     (not used in this application)
  *       lenbuf      - MSS, size of read and write buffers
@@ -45,32 +53,23 @@ int main(int argc, char *argv[])
   int sd;                 /* socket descriptor                     */
   int port;               /* protocol port number                  */
   char *host;             /* pointer to host name                  */
+  char *hostl;            /* name of the client host               */
   int EOFFlag;            /* flag, set to 1 when input file at EOF */
   char *sendbuf;          /* buffer for data going to the server   */
   char *recvbuf;          /* buffer for data from the server       */
-  FILE *infile;           /* file descriptor for input file        */
+  char *fname;            /* name of requested file                */
+  char message[MAX_MSG_LEN];   /*array for messages that may be used */
   FILE *outfile;          /* file descriptor for output file       */
-  fd_set descset;         /* set of file and socket descriptors    */
-                          /* for select                            */
-  ssize_t nread;          /* number of bytes read by a read        */
-  size_t nwrite;          /* number of bytes written by a write    */
-  int charsin;            /* number of characters sent out through */
-                          /* the socket                            */
-  int charsout;           /* number of characters received through */
-                          /* the socket                            */
-  int buffersin;          /* number of buffers sent out through    */
-                          /* the socket                            */
-  int buffersout;         /* number of buffers received through    */
-                          /* the socket                            */
+  size_t file_size;        /* size of requested file                */
+  size_t recv_size;        /* number of bytes recevied from server  */
+ 
   int val;
+  char* p;
+  regex_t regex;
 
   /* Initialize variables */
-  charsin = 0;
-  charsout = 0;
-  buffersin = 0;
+  recv_size = 0;
   EOFFlag = 0;
-  buffersout = 0;
-  infile = NULL;
   outfile = NULL;
   sendbuf = NULL;
   recvbuf = NULL;
@@ -89,12 +88,12 @@ int main(int argc, char *argv[])
     fprintf(stderr, "	  Default value 20004\n");
     fprintf(stderr, "IP address of local communication endpoint\n");
     fprintf(stderr, "	  Default value localhost\n");
-    fprintf(stderr, "input filename (contains data to be echoed)\n");
+    fprintf(stderr, "Requested filename\n");
     fprintf(stderr, "	  Default value inputfile\n");
     fprintf(stderr, "output filename (containing echoed data\n");
-    fprintf(stderr, "	  Default value outputfile\n");
+    fprintf(stderr, "	  Default value fileToTransfer\n");
     fprintf(stderr, "buffer size equals MSS for each packet\n");
-    fprintf(stderr, "          Default value 1448\n");
+    fprintf(stderr, "          Default value 1440 for ipv4\n");
     fprintf(stderr, "To accept any particular default replace\n");
     fprintf(stderr, "the variable with a . in the argument list\n");
     exit(0);
@@ -110,7 +109,7 @@ int main(int argc, char *argv[])
   }
   else
   {
-    lenbuf = 1448;
+    lenbuf = BUFSIZE;
   }
   sendbuf = (char*)malloc(lenbuf * sizeof(int));
   if (sendbuf == NULL)
@@ -126,48 +125,31 @@ int main(int argc, char *argv[])
     exit(1);
   }
 
-  /* Check command-line argument for output filename and extract       */
-  /* Default filename is outputfile                                    */
+  /* Check command-line argument for requested filename and extract       */
+  /* Default filename is fileToTransfer                                    */
   /* ---to use default use . as argument or give no argument           */
-  /* open filename for writing                                         */
-  /* print error message and exit in case of error in open             */
+  /* put the fileName into the send buffer                            */
   if ((argc > 4) && strncmp(argv[4], ".", 1) != 0)
   {
-    outfile = fopen(argv[4], "w");
+    fname = argv[4];
   }
   else
   {
-    outfile = fopen("outputfile", "w");
-  }
-  if (outfile == NULL)
-  {
-    fprintf(stderr, "output file not created %s\n", argv[4]);
-    free(sendbuf);
-    free(recvbuf);
-    exit(1);
+    fname = DEFAULTFILE;
   }
 
-  /* Check command-line argument for input filename and extract        */
-  /* Default filename is inputfile, to use default use . as argument   */
+  /* Check command-line argument for client name                       */
+  /* Default client name is localhost, to use default use . as argument   */
   /* ---to use default use . as argument or give no argument 3 or 4    */
-  /* open file for reading                                             */
-  /* print error message and exit if file not found                    */
   if ((argc > 3) && strncmp(argv[3], ".", 1) != 0)
   {
-    infile = fopen(argv[3], "r");
+    hostl = argv[3];
   }
   else
   {
-    infile = fopen("inputfile", "r");
+    hostl = LOCALHOST;
   }
-  if (infile == NULL)
-  {
-    fprintf(stderr, "input file not found %s\n", argv[3]);
-    close(fileno(outfile));
-    free(sendbuf);
-    free(recvbuf);
-    exit(1);
-  }
+  
 
   /* Check command-line argument for protocol port and extract         */
   /* port number if one is extracted.  Otherwise, use the default      */
@@ -190,24 +172,16 @@ int main(int argc, char *argv[])
   else
   {
     fprintf(stderr, "bad port number %s\n", argv[2]);
-    close(fileno(infile));
-    close(fileno(outfile));
-    free(sendbuf);
-    free(recvbuf);
-    exit(1);
+    safeExit(outfile, sendbuf, recvbuf, 1);
   }
   if (((long int)(ptrp = getprotobyname("tcp"))) == 0)
   {
     fprintf(stderr, "cannot map \"tcp\" to protocol number");
-    close(fileno(infile));
-    close(fileno(outfile));
-    free(sendbuf);
-    free(recvbuf);
-    exit(1);
+    safeExit(outfile, sendbuf, recvbuf, 1);
   }
 
   /* Check host argument and assign host name. */
-  /* Default filename is inputfile, to use default use ? as argument   */
+  /* Default name is LOCALHOST, to use default use ? as argument   */
   /* Convert host name to equivalent IP address and copy to sad. */
   /* if host argument specified   */
   if ((argc > 1) && strncmp(argv[1], ".", 1) != 0)
@@ -216,17 +190,13 @@ int main(int argc, char *argv[])
   }
   else
   {
-    host = localhost;
+    host = LOCALHOST;
   }
   ptrh = gethostbyname(host);
   if (((char *)ptrh) == NULL)
   {
     fprintf(stderr, "invalid host: %s\n", host);
-    close(fileno(infile));
-    close(fileno(outfile));
-    free(sendbuf);
-    free(recvbuf);
-    exit(1);
+    safeExit(outfile, sendbuf, recvbuf, 1);
   }
   memcpy(&sad.sin_addr, ptrh->h_addr, ptrh->h_length);
 
@@ -235,155 +205,102 @@ int main(int argc, char *argv[])
   if (sd < 0)
   {
     fprintf(stderr, "socket creation failed\n");
-    close(fileno(infile));
-    close(fileno(outfile));
-    free(sendbuf);
-    free(recvbuf);
-    exit(1);
+    safeExit(outfile, sendbuf, recvbuf, 1);
   }
   val = IP_PMTUDISC_DONT;
   if (setsockopt(sd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val)) < 0)
   {
-    printf("Error setting MTU discover A");
+    printf("Error setting MTU discover A\n");
   }
   val = lenbuf + 12;
   if (setsockopt(sd, IPPROTO_TCP, TCP_MAXSEG, &val, sizeof(val)) < 0)
   {
-    printf("Error setting MAXSEG ofption A");
+    printf("Error setting MAXSEG ofption A\n");
   }
   if (connect(sd, (struct sockaddr *)&sad, sizeof(sad)) < 0)
   {
     fprintf(stderr, "connect failed\n");
-    close(fileno(infile));
-    close(fileno(outfile));
     close(sd);
-    free(sendbuf);
-    free(recvbuf);
-    exit(1);
+    safeExit(outfile, sendbuf, recvbuf, 1);
   }
-
-  /* Define the descriptor set for select, unset all descriptors       */
-  /* determine the largest descriptor to be used in the select         */
-  FD_ZERO(&descset);
-
-  for (;;)
+  
+  /* Send requested file name to the server */
+  if (send(sd, fname, strlen(fname), 0) < 0)
   {
-    /* set the descriptors for the input file and tcp socket          */
-    if (EOFFlag == 0)
-      FD_SET(fileno(infile), &descset);
-    FD_SET(sd, &descset);
-    maxfdp1 = fileno(infile) + 1;
-    if (maxfdp1 <= sd)
-      maxfdp1 = sd + 1;
-
-    if ((errno = select(maxfdp1, &descset, NULL, NULL, NULL)) < 0)
-    {
-      if (errno == EINTR)
-        continue;
-      else
-        fprintf(stderr, "select error\n");
+    fprintf(stderr, "fail to send file name\n");
+    close(sd);
+    safeExit(outfile, sendbuf, recvbuf, 1);
+  }
+  
+  /* Receive the first response message */
+  if (recv(sd, recvbuf, lenbuf, 0) < 0){
+    fprintf(stderr, "fail to receive response message\n");
+    close(sd);
+    safeExit(outfile, sendbuf, recvbuf, 1);
+  }
+  
+  /* If the request file doesn't exit, exit program */
+  /* If the file size is received, extract the integer */
+  /* Otherwise report unknown message error */
+  if (!strcmp(recvbuf, "COULD NOT OPEN REQUESTED FILE")){
+    printf("Requested file %s doesn't exit on server\n", fname);
+    close(sd);
+    safeExit(outfile, sendbuf, recvbuf, 0);
+  }
+  else {
+    if (!regcomp(&regex, "FILE SIZE IS [0-9]+ bytes", 0)){
+      fprintf(stderr, "failed to compose regex\n");
+      close(sd);
+      safeExit(outfile, sendbuf, recvbuf, 1);
     }
-
-    /* process data waiting in socket, data coming from the server    */
-    /* ---read nread<=lenbuf bytes from the socket into the recvbuf   */
-    /* ---write the nread bytes into the output file.                 */
-    /* ---keep a running count of the number of bytes read from the   */
-    /*    and written to the output file in variable charsin          */
-    /* ---when the value of charsin reaches the value of charsout     */
-    /*    (charsout is the number of characters sent to server) and   */
-    /*   no more data remains to be sent close descriptors then exit  */
-    if (FD_ISSET(sd, &descset))
-    {
-      val = lenbuf + 12;
-      if (setsockopt(sd, IPPROTO_TCP, TCP_MAXSEG, &val, sizeof(val)) < 0)
-      {
-        printf("ERROR setting MAXSEG option B");
-      }
-      val = IP_PMTUDISC_DONT;
-      if (setsockopt(sd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val)) < 0)
-      {
-        printf("ERROR setting MTU DISCOVER option B");
-      }
-      if ((nread = read(sd, recvbuf, lenbuf)) < 0)
-      {
-        fprintf(stderr, "error reading from socket");
-        close(sd);
-        close(fileno(infile));
-        close(fileno(outfile));
-        close(sd);
-        free(sendbuf);
-        free(recvbuf);
-        exit(1);
-      }
-      else
-      {
-        nwrite = write(fileno(outfile), recvbuf, nread);
-        charsin += nread;
-        buffersin++;
-        if ((charsin >= charsout))
-        {
-          fprintf(stdout, "The number of bits transmitted is");
-          fprintf(stdout, " %d\n", 8 * charsout);
-          fprintf(stdout, "The number of bits received is");
-          fprintf(stdout, " %d\n", 8 * charsin);
-          fprintf(stdout, "If there is no fragmentation in the ");
-          close(fileno(outfile));
-          break;
-        }
-      }
+    if (!regexec(&regex, recvbuf, 0, NULL, 0)){
+      for (p = recvbuf; !isdigit(*p); p++){};
+      file_size = strtol(p, &p, 10);
+      printf("Requested file size: %d bytes\n", file_size);
+      regfree(&regex);
     }
-    /* process data from input file, data being sent to the server    */
-    /* ---read nread<=lenbuf bytes from the input file into the       */
-    /*    send buffer sendbuf                                         */
-    /* ---write these nread bytes into the TCP socket                 */
-    /* ---keep a running count of the number of bytes read from the   */
-    /*    socket and written to the output file in variable charsout  */
-    if ((FD_ISSET(fileno(infile), &descset)))
-    {
-      val = IP_PMTUDISC_DONT;
-      if (setsockopt(sd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val)) < 0)
-      {
-        printf("ERROR setting MTU DISCOVER option C");
-      }
-      val = lenbuf + 12;
-      if (setsockopt(sd, IPPROTO_TCP, TCP_MAXSEG, &val, sizeof(val)) < 0)
-      {
-        printf("ERROR setting MAXSEG option C");
-      }
-      if ((nread = read(fileno(infile), sendbuf, lenbuf)) < 0)
-      {
-        fprintf(stderr, "error reading from input file");
-        close(sd);
-        close(fileno(infile));
-        close(fileno(outfile));
-        free(sendbuf);
-        free(recvbuf);
-        exit(1);
-      }
-      else if (nread > 0)
-      {
-        nwrite = write(sd, sendbuf, nread);
-        charsout += nwrite;
-        buffersout++;
-      }
-      else
-      {
-        if (feof(infile))
-        {
-          fprintf(stderr, "notreallyEOF\n");
-          continue;
-        }
-        FD_CLR(fileno(infile), &descset);
-        close(fileno(infile));
-        EOFFlag = 1;
-      }
+    else {
+      printf("Invalid reply message: %s\n", recvbuf);
+      regfree(&regex);
+      close(sd);
+      safeExit(outfile, sendbuf, recvbuf, 0);
     }
   }
-  /* Close the socket. */
+  
+  /* Open file to write                    */
+  if ((outfile = fopen(fname, "w+")) == NULL)
+  {
+    fprintf(stderr, "failed to create file: %s\n", fname);
+    close(sd);
+    safeExit(outfile, sendbuf, recvbuf, 1);
+  } 
+  
+  /* Start file transmission                    */
+  while ((val = recv(sd, recvbuf, lenbuf, 0)) > 0){
+    recv_size += val;
+    fwrite(recvbuf, sizeof(char), val, outfile);
+    if (recvbuf[val-1] == EOF || recv_size >= file_size){
+      break;
+    }
+  }
+  if (val < 0){
+    fprintf(stderr, "failed to transimit file\n");
+    close(sd);
+    safeExit(outfile, sendbuf, recvbuf, 1);
+  }
+  printf("Received bytes: %d/%d\n", recv_size, file_size);
+  printf("Transmission complete\n");
+  close(sd);
+  safeExit(outfile, sendbuf, recvbuf, 0);
+
+}
+
+/* release memory and exit with code 1 */
+void safeExit(FILE* outfile, char* sendbuf, char* recvbuf, int code){
+  if (outfile){
+    close(fileno(outfile));
+  }
   free(sendbuf);
   free(recvbuf);
-  close(sd);
-
-  /* Terminate the client program gracefully. */
-  exit(0);
+  exit(code);
 }
