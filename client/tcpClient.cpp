@@ -66,6 +66,7 @@ int main(int argc, char *argv[])
   int val;
   char* p;
   regex_t regex;
+  regmatch_t pmatch[1];
 
   /* Initialize variables */
   recv_size = 0;
@@ -225,7 +226,8 @@ int main(int argc, char *argv[])
   }
   
   /* Send requested file name to the server */
-  if (send(sd, fname, strlen(fname), 0) < 0)
+  strcpy(sendbuf, fname);
+  if (send(sd, sendbuf, strlen(fname), 0) < 0)
   {
     fprintf(stderr, "fail to send file name\n");
     close(sd);
@@ -248,12 +250,12 @@ int main(int argc, char *argv[])
     safeExit(outfile, sendbuf, recvbuf, 0);
   }
   else {
-    if (!regcomp(&regex, "FILE SIZE IS [0-9]+ bytes", 0)){
+    if (regcomp(&regex, "FILE SIZE IS [0-9]+ bytes", REG_EXTENDED)){
       fprintf(stderr, "failed to compose regex\n");
       close(sd);
       safeExit(outfile, sendbuf, recvbuf, 1);
     }
-    if (!regexec(&regex, recvbuf, 0, NULL, 0)){
+    if (!regexec(&regex, recvbuf, 1, pmatch, 0)){
       for (p = recvbuf; !isdigit(*p); p++){};
       file_size = strtol(p, &p, 10);
       printf("Requested file size: %d bytes\n", file_size);
@@ -268,7 +270,7 @@ int main(int argc, char *argv[])
   }
   
   /* Open file to write                    */
-  if ((outfile = fopen(fname, "w+")) == NULL)
+  if ((outfile = fopen(fname, "wb+")) == NULL)
   {
     fprintf(stderr, "failed to create file: %s\n", fname);
     close(sd);
@@ -279,7 +281,7 @@ int main(int argc, char *argv[])
   while ((val = recv(sd, recvbuf, lenbuf, 0)) > 0){
     recv_size += val;
     fwrite(recvbuf, sizeof(char), val, outfile);
-    if (recvbuf[val-1] == EOF || recv_size >= file_size){
+    if (recv_size >= file_size){
       break;
     }
   }
@@ -298,7 +300,7 @@ int main(int argc, char *argv[])
 /* release memory and exit with code 1 */
 void safeExit(FILE* outfile, char* sendbuf, char* recvbuf, int code){
   if (outfile){
-    close(fileno(outfile));
+    fclose(outfile);
   }
   free(sendbuf);
   free(recvbuf);
