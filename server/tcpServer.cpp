@@ -12,8 +12,9 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <sys/stat.h>
-#define PROTOPORT 33455 /* default protocol port number           */
-#define QLEN 24         /* size of request queue                  */
+#define PROTOPORT 33455    /* default protocol port number           */
+#define QLEN 24            /* size of request queue                  */
+#define MAX_FNAME_SIZE 255 /* max file name size                  */
 
 int visits = 0; /* counts client connections              */
 /*------------------------------------------------------------------------
@@ -70,7 +71,7 @@ int main(int argc, char *argv[])
   FILE *file;
   unsigned long filesize;
   struct stat statebuff;
-  char *filename;
+  char filename[MAX_FNAME_SIZE];
   int send_size;
   /* Initialize variables                                               */
   packetcnt = 0;
@@ -79,14 +80,14 @@ int main(int argc, char *argv[])
   tcpcharcntin = 0;
   tcpcharcntout = 0;
   file = NULL;
-  memset((char *)&sad, 0, sizeof(sad));   /* clear sockaddr structure      */
-  memset((char *)&cad, 0, sizeof(cad));   /* clear sockaddr structure      */
-  memset((char *)&sadu, 0, sizeof(sadu)); /* clear sockaddr structure     */
-  sad.sin_family = AF_INET;               /* set family to Internet        */
-  sad.sin_addr.s_addr = htonl(INADDR_ANY);       /* set the local IP address      */
-  sadu.sin_family = AF_INET;              /* set family to Internet        */
-  sadu.sin_addr.s_addr = INADDR_ANY;      /* set the local IP address      */
-  cad.sin_family = AF_INET;               /* set family to Internet         */
+  memset((char *)&sad, 0, sizeof(sad));    /* clear sockaddr structure      */
+  memset((char *)&cad, 0, sizeof(cad));    /* clear sockaddr structure      */
+  memset((char *)&sadu, 0, sizeof(sadu));  /* clear sockaddr structure     */
+  sad.sin_family = AF_INET;                /* set family to Internet        */
+  sad.sin_addr.s_addr = htonl(INADDR_ANY); /* set the local IP address      */
+  sadu.sin_family = AF_INET;               /* set family to Internet        */
+  sadu.sin_addr.s_addr = INADDR_ANY;       /* set the local IP address      */
+  cad.sin_family = AF_INET;                /* set family to Internet         */
 
   /* Check for command-line arguments                                  */
   /* If there are not arguments print an information message           */
@@ -116,7 +117,7 @@ int main(int argc, char *argv[])
   {
     lenbuf = 1440;
   }
-  echobuf = (char*)malloc(lenbuf * sizeof(int));
+  echobuf = (char *)malloc(lenbuf * sizeof(int));
   if (echobuf == NULL)
   {
     fprintf(stderr, "echo buffer not created, size %s\n", argv[2]);
@@ -130,14 +131,14 @@ int main(int argc, char *argv[])
   /* convert the valid port number to network byte order and insert it  */
   /* ---  into the socket address structure.                            */
   /* OR print an error message and exit if the port is invalid          */
-  if (argc > 1 && strncmp(argv[1], ".", 1) !=0)
+  if (argc > 1 && strncmp(argv[1], ".", 1) != 0)
   {
     port = atoi(argv[1]);
   }
   else
   {
     port = PROTOPORT;
-	printf("%d\n",port);
+    printf("%d\n", port);
   }
   if (port > 0)
   {
@@ -149,7 +150,6 @@ int main(int argc, char *argv[])
     free(echobuf);
     exit(1);
   }
-
 
   /* Map TCP transport protocol name to protocol number                 */
   /* Create a tcp socket with a socket descriptor tcpsd                 */
@@ -165,7 +165,7 @@ int main(int argc, char *argv[])
     close(udpsd);
     exit(1);
   }
-  printf("%d\n",tcpptrp->p_proto);
+  printf("%d\n", tcpptrp->p_proto);
   tcpsd = socket(AF_INET, SOCK_STREAM, tcpptrp->p_proto);
   if (tcpsd < 0)
   {
@@ -271,7 +271,7 @@ int main(int argc, char *argv[])
         close(tcpsd);
         tval.tv_sec = 5;
         tval.tv_usec = 0;
-        if (setsockopt(tcpsd, SOL_SOCKET, SO_RCVTIMEO, &tval,
+        if (setsockopt(connfd, SOL_SOCKET, SO_RCVTIMEO, &tval,
                        sizeof(tval)) < 0)
         {
           printf("ERROR setting RCVTIMEOUT for tcp\n");
@@ -279,60 +279,67 @@ int main(int argc, char *argv[])
         /* accept first message */
         if (nread = read(connfd, echobuf, lenbuf) < 0)
         {
-        	fprintf(stderr, "error reading from TCP socket");
-        	free(echobuf);
-        	close(connfd);
-        	exit(1);
-    	}
-    	/* process first message */
-    	strcpy(filename, echobuf);
-    	file = fopen(echobuf, "r");
-    	
-    	if (file == NULL)
-    	{
-    		write(connfd, "COULD NOT OPEN REQUESTED FILE", strlen("COULD NOT OPEN REQUESTED FILE"));
-    		free(echobuf);
-    		close(connfd);
-    		exit(1);
-    	}
-    	else
-    	{	
-    		strcpy(echobuf, "");
-    		filesize = -1;
-    		if (stat(filename, &statebuff)>=0)
-    		{
-    			filesize = statebuff.st_size;
-    		}
-    		if (filesize == -1)
-    		{
-    			fprintf(stderr, "fail to get file size");
-    			free(echobuf);
-    			close(connfd);
-    			exit(1);
-    		}
-    		sprintf(echobuf, "FILE SIZE IS %d BYTES", filesize);
-    		printf("%s", echobuf);
-    		nwrite = write(connfd, echobuf, strlen(echobuf));
-    	}
-    	/*start file transmission    */
-		send_size = 0;
-    	while (1)
-    	{
-    		val = fread(echobuf, sizeof(char), lenbuf, file);
-    		send_size += val;
-    		nwrite = write(connfd, echobuf, strlen(echobuf));
-    		if (nwrite < 0) 
-    		{
-    			break;
-    		}
-    		if (echobuf[val-1] == EOF || send_size >= 8*filesize)
-    		{
-    			break;
-    		}
-    	}
-    	/*closing connection*/
-    	printf("send %d bytes\n", filesize);
-    	printf("transmission complete\n");
+          fprintf(stderr, "error reading from TCP socket");
+          free(echobuf);
+          close(connfd);
+          exit(1);
+        }
+        printf("Cient request file: %s\n", echobuf);
+        /* process first message */
+        strcpy(filename, echobuf);
+        file = fopen(echobuf, "r");
+
+        if (file == NULL)
+        {
+          write(connfd, "COULD NOT OPEN REQUESTED FILE", strlen("COULD NOT OPEN REQUESTED FILE"));
+          free(echobuf);
+          close(connfd);
+          exit(1);
+        }
+        else
+        {
+          strcpy(echobuf, "");
+          filesize = -1;
+
+          if (stat(filename, &statebuff) >= 0)
+          {
+            filesize = statebuff.st_size;
+          }
+          if (filesize == -1)
+          {
+            fprintf(stderr, "fail to get file size");
+            free(echobuf);
+            close(connfd);
+            exit(1);
+          }
+          sprintf(echobuf, "FILE SIZE IS %d bytes\n", filesize);
+          printf("%s", echobuf);
+          nwrite = write(connfd, echobuf, strlen(echobuf));
+          sleep(1);
+        }
+        /*start file transmission    */
+        send_size = 0;
+        while (1)
+        {
+          val = fread(echobuf, sizeof(char), lenbuf, file);
+          send_size += val;
+          nwrite = write(connfd, echobuf, val);
+          if (nwrite < 0)
+          {
+            fprintf(stderr, "fail to send file");
+            free(echobuf);
+            close(connfd);
+            exit(1);
+          }
+          if (send_size >= filesize)
+          {
+            break;
+          }
+          sleep(1);
+        }
+        /*closing connection*/
+        printf("send %d bytes\n", send_size);
+        printf("transmission complete\n");
         free(echobuf);
         close(connfd);
         exit(0);
@@ -342,7 +349,6 @@ int main(int argc, char *argv[])
       /* close TCP connection in the parent                          */
       close(connfd);
     }
-      /* !!!!!!!!!!!!!!!!!!!!end child process!!!!!!!!!!!!!!!!!!!!!!!*/
-    
+    /* !!!!!!!!!!!!!!!!!!!!end child process!!!!!!!!!!!!!!!!!!!!!!!*/
   }
 }
