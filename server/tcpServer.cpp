@@ -325,9 +325,11 @@ int main(int argc, char *argv[])
 	{
 		flag = 6;
 	}
-	printf("TCP connection request received. Version : %d\n", flag);
-    if (1)
-    { /* processing tcp data                                         */
+	
+    if (FD_ISSET(tcpsd, &descset)||FD_ISSET(tcpsd6, &descset))
+    { 
+    printf("TCP connection request received. Version : %d\n", flag);
+    /* processing tcp data                                         */
       len = sizeof(sad);
 	  len6 = sizeof(sad6);
 	  conlenbuf = flag == 4 ? lenbuf : lenbuf6;

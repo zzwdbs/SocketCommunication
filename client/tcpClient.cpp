@@ -2,6 +2,7 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <string.h>
 #include <netinet/tcp.h>
@@ -50,6 +51,8 @@ int main(int argc, char *argv[])
   struct hostent *ptrh;   /* pointer to a host table entry         */
   struct protoent *ptrp;  /* pointer to a protocol table entry     */
   struct sockaddr_in sad; /* structure to hold an IP address       */
+  struct sockaddr_in6 sad6; /* structure to hold an IP address       */
+  int protocol;
   size_t lenbuf;          /* length of input and output buffers    */
   int maxfdp1;            /* maximum descriptor value,             */
   int sd;                 /* socket descriptor                     */
@@ -77,7 +80,8 @@ int main(int argc, char *argv[])
   sendbuf = NULL;
   recvbuf = NULL;
   memset((char *)&sad, 0, sizeof(sad)); /* clear sockaddr structure      */
-  sad.sin_family = AF_INET;             /* set family to Ipv4        */
+  memset((char *)&sad6, 0, sizeof(sad6)); /* clear sockaddr structure      */
+  protocol = AF_INET;             /* set family to Ipv4        */
   
   
 
@@ -120,15 +124,12 @@ int main(int argc, char *argv[])
   ptrh = gethostbyname(host);
   if (((char *)ptrh) == NULL)
   {
-    fprintf(stderr, "invalid host: %s\n", host);
-    safeExit(outfile, sendbuf, recvbuf, 1);
-  }
-  memcpy(&sad.sin_addr, ptrh->h_addr, ptrh->h_length);
-  sad.sin_family = ptrh->h_addrtype;
-  if (sad.sin_family != AF_INET && sad.sin_family != AF_INET6)
-  {
-    fprintf(stderr, "unknown protocol: %d\n", sad.sin_family);
-    safeExit(outfile, sendbuf, recvbuf, 1);
+    ptrh = gethostbyname2(host, AF_INET6);
+    if (((char *)ptrh) == NULL){
+      fprintf(stderr, "invalid host: %s\n", host);
+      safeExit(outfile, sendbuf, recvbuf, 1);
+    }
+    protocol = AF_INET6;
   }
 
   /* Check command-line argument for buffer size  and extract          */
@@ -140,7 +141,7 @@ int main(int argc, char *argv[])
   }
   else
   {
-    if (sad.sin_family == AF_INET)
+    if (protocol == AF_INET)
     {
       lenbuf = BUFSIZE;
     }
@@ -201,7 +202,7 @@ int main(int argc, char *argv[])
   }
   else
   {
-    if (sad.sin_family == AF_INET)
+    if (protocol == AF_INET)
     {
       port = PROTOPORT;
     }
@@ -210,11 +211,7 @@ int main(int argc, char *argv[])
       port = PROTOPORT6;
     }
   }
-  if (port > 0)
-  {
-    sad.sin_port = htons((u_short)port);
-  }
-  else
+  if (port<=0)
   {
     fprintf(stderr, "bad port number %s\n", argv[2]);
     safeExit(outfile, sendbuf, recvbuf, 1);
@@ -242,7 +239,27 @@ int main(int argc, char *argv[])
   {
     printf("Error setting MAXSEG ofption A\n");
   }
-  if (connect(sd, (struct sockaddr *)&sad, sizeof(sad)) < 0)
+  
+  if(protocol == AF_INET)
+  {
+    sad.sin_port = htons((u_short)port);
+    sad.sin_family = protocol;
+    memcpy(&sad.sin_addr, ptrh->h_addr, ptrh->h_length);
+    inet_ntop(protocol, &(sad.sin_addr), message, MAX_MSG_LEN);
+    printf("IPv4 connecting to address: %s, encoded port: %d\n",message, sad.sin_port);
+    val = connect(sd, (struct sockaddr *)&sad, sizeof(sad));
+  }
+  else
+  {
+    sad6.sin6_port = htons((u_short)port);
+    sad6.sin6_family = protocol;
+    memcpy(&sad6.sin6_addr, ptrh->h_addr, ptrh->h_length);
+    inet_ntop(protocol, &(sad6.sin6_addr), message, MAX_MSG_LEN);
+    printf("IPv6 connecting to address: %s, encoded port: %d\n", message, sad6.sin6_port);
+    val = connect(sd, (struct sockaddr *)&sad6, sizeof(sad6));
+  }
+  
+  if (val < 0)
   {
     fprintf(stderr, "connect failed\n");
     close(sd);
