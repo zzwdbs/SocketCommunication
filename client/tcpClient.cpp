@@ -13,7 +13,7 @@
 #include <ctype.h>
 
 #define PROTOPORT 33455 /* default protocol port number for ipv4 */
-#define PROTOPORT6 33456 /* default protocol port number for ipv6 */
+#define PROTOPORT6 33446 /* default protocol port number for ipv6 */
 #define BUFSIZE 1440 /* default buffer size for ipv4 */
 #define BUFSIZE6 1280 /* default buffer size for ipv6 */
 #define MAX_MSG_LEN 50 /* maximun message lenghth */
