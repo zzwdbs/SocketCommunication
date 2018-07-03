@@ -11,8 +11,10 @@
 #include <regex.h>
 #include <ctype.h>
 
-#define PROTOPORT 33455 /* default protocol port number           */
+#define PROTOPORT 33455 /* default protocol port number for ipv4 */
+#define PROTOPORT6 33456 /* default protocol port number for ipv6 */
 #define BUFSIZE 1440 /* default buffer size for ipv4 */
+#define BUFSIZE6 1280 /* default buffer size for ipv6 */
 #define MAX_MSG_LEN 50 /* maximun message lenghth */
 
 extern int errno;
@@ -75,7 +77,9 @@ int main(int argc, char *argv[])
   sendbuf = NULL;
   recvbuf = NULL;
   memset((char *)&sad, 0, sizeof(sad)); /* clear sockaddr structure      */
-  sad.sin_family = AF_INET;             /* set family to Internet        */
+  sad.sin_family = AF_INET;             /* set family to Ipv4        */
+  
+  
 
   /* Check for command-line arguments                                  */
   /* If there are not arguments print an information message           */
@@ -99,9 +103,35 @@ int main(int argc, char *argv[])
     fprintf(stderr, "the variable with a . in the argument list\n");
     exit(0);
   }
+  
+  /* Check host argument, protocal, and assign host name. */
+  /* Do this first because we need to know the protocal is ipv4 or ipv6 */
+  /* Default name is LOCALHOST, to use default use ? as argument   */
+  /* Convert host name to equivalent IP address and copy to sad. */
+  /* if host argument specified   */
+  if ((argc > 1) && strncmp(argv[1], ".", 1) != 0)
+  {
+    host = argv[1];
+  }
+  else
+  {
+    host = LOCALHOST;
+  }
+  ptrh = gethostbyname(host);
+  if (((char *)ptrh) == NULL)
+  {
+    fprintf(stderr, "invalid host: %s\n", host);
+    safeExit(outfile, sendbuf, recvbuf, 1);
+  }
+  memcpy(&sad.sin_addr, ptrh->h_addr, ptrh->h_length);
+  sad.sin_family = ptrh->h_addrtype;
+  if (sad.sin_family != AF_INET && sad.sin_family != AF_INET6)
+  {
+    fprintf(stderr, "unknown protocol: %d\n", sad.sin_family);
+    safeExit(outfile, sendbuf, recvbuf, 1);
+  }
 
   /* Check command-line argument for buffer size  and extract          */
-  /* Default buffer size is 1448                                       */
   /* ---to use default use . as argument or give no argument           */
   /* print error message and exit in case of error in reading          */
   if ((argc > 5) && strncmp(argv[5], ".", 1) != 0)
@@ -110,7 +140,14 @@ int main(int argc, char *argv[])
   }
   else
   {
-    lenbuf = BUFSIZE;
+    if (sad.sin_family == AF_INET)
+    {
+      lenbuf = BUFSIZE;
+    }
+    else
+    {
+      lenbuf = BUFSIZE6;
+    }
   }
   sendbuf = (char*)malloc(lenbuf * sizeof(int));
   if (sendbuf == NULL)
@@ -164,7 +201,14 @@ int main(int argc, char *argv[])
   }
   else
   {
-    port = PROTOPORT;
+    if (sad.sin_family == AF_INET)
+    {
+      port = PROTOPORT;
+    }
+    else
+    {
+      port = PROTOPORT6;
+    }
   }
   if (port > 0)
   {
@@ -180,26 +224,6 @@ int main(int argc, char *argv[])
     fprintf(stderr, "cannot map \"tcp\" to protocol number");
     safeExit(outfile, sendbuf, recvbuf, 1);
   }
-
-  /* Check host argument and assign host name. */
-  /* Default name is LOCALHOST, to use default use ? as argument   */
-  /* Convert host name to equivalent IP address and copy to sad. */
-  /* if host argument specified   */
-  if ((argc > 1) && strncmp(argv[1], ".", 1) != 0)
-  {
-    host = argv[1];
-  }
-  else
-  {
-    host = LOCALHOST;
-  }
-  ptrh = gethostbyname(host);
-  if (((char *)ptrh) == NULL)
-  {
-    fprintf(stderr, "invalid host: %s\n", host);
-    safeExit(outfile, sendbuf, recvbuf, 1);
-  }
-  memcpy(&sad.sin_addr, ptrh->h_addr, ptrh->h_length);
 
   /* Create a TCP socket, and connect it the the specified server      */
   sd = socket(PF_INET, SOCK_STREAM, ptrp->p_proto);
@@ -258,7 +282,7 @@ int main(int argc, char *argv[])
     if (!regexec(&regex, recvbuf, 1, pmatch, 0)){
       for (p = recvbuf; !isdigit(*p); p++){};
       file_size = strtol(p, &p, 10);
-      printf("Requested file size: %d bytes\n", file_size);
+      printf("Requested file size: %zu bytes\n", file_size);
       regfree(&regex);
     }
     else {
@@ -290,7 +314,7 @@ int main(int argc, char *argv[])
     close(sd);
     safeExit(outfile, sendbuf, recvbuf, 1);
   }
-  printf("Received bytes: %d/%d\n", recv_size, file_size);
+  printf("Received bytes: %zu/%zu\n", recv_size, file_size);
   printf("Transmission complete\n");
   close(sd);
   safeExit(outfile, sendbuf, recvbuf, 0);
@@ -302,7 +326,11 @@ void safeExit(FILE* outfile, char* sendbuf, char* recvbuf, int code){
   if (outfile){
     fclose(outfile);
   }
-  free(sendbuf);
-  free(recvbuf);
+  if (sendbuf){
+    free(sendbuf);
+  }
+  if (recvbuf){
+    free(recvbuf);
+  }
   exit(code);
 }
