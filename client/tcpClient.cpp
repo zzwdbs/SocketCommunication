@@ -223,7 +223,17 @@ int main(int argc, char *argv[])
   }
 
   /* Create a TCP socket, and connect it the the specified server      */
-  sd = socket(PF_INET, SOCK_STREAM, ptrp->p_proto);
+  if(protocol == AF_INET)
+  {
+    printf("Create IPv4 socket\n");
+    sd = socket(PF_INET, SOCK_STREAM, ptrp->p_proto);
+  }
+  else
+  {
+    printf("Create IPv6 socket\n");
+    sd = socket(PF_INET6, SOCK_STREAM, ptrp->p_proto);
+  }
+  
   if (sd < 0)
   {
     fprintf(stderr, "socket creation failed\n");
