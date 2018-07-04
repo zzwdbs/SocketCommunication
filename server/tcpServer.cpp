@@ -17,29 +17,29 @@
 #define QLEN 24            /* size of request queue                  */
 #define MAX_FNAME_SIZE 255 /* max file name size                     */
 
-int visits = 0;            /* counts client connections              */
 /*------------------------------------------------------------------------
- * Program:   echoserver
+ * Program:  TCP file transfer server
  *
- * Purpose:   allocate a TCP and UDP socket and then repeatedly 
+ * Purpose:   allocate two TCP sockets, one for ipv4 and one for ipv6.And then repeatedly 
  *            executes the following:
- *      (1) wait for the next TCP connection or TCP packet or 
- *          UDP packet from a client
+ *      (1) wait for the next TCP connection or TCP packet 
+ *			 from a client
  *      (2) when accepting a TCP connection a child process is spawned
  *          to deal with the TCP data transfers on that new connection
- *      (2) when a TCP segment arrives it is served by the child process.
- *          The arriving segment is echoed back to the client
- *      (2) when a UDP packet arrives it is echoed back to the client. 
- *      (3) when the TCP connection is terminated the child then terminates
- *      (4) go back to step (1)
+ *      (3) when a TCP segment arrives it is served by the child process.
+ *          Extract file name from the request packet and try to open that file.
+ *			If it is successfully opened start file transfer.
+ *			Otherwise send back error message.
+ *      (4) when the TCP connection is terminated the child then terminates
+ *      (5) go back to step (1)
  *
- * Syntax:    server [[ port ] [buffer size]]
+ * Syntax:    server [[ portv4 ][ portv6 ][buffer size v4] [buffer size v6]]
  *
  *       port  - protocol port number to use
  *       buffer size  - MSS of each packet sent
  *
- * Note:      The port argument is optional.  If no port is specified,
- *         the server uses the default given by PROTOPORT.
+ * Note:      All arguments are optional. 
+ *         the server uses the default if no arguments are specified.
  *
  *------------------------------------------------------------------------
  */
@@ -65,12 +65,12 @@ int main(int argc, char *argv[])
   struct timeval tval;      /* max time to wait before next select  */
   socklen_t len, len6;      /* length of the socket address struct  */
   int flag;					/* whether the socket is ipv4 or ipv6   */
-  pid_t pid;
-  fd_set descset;
-  int val;
-  FILE *file;
-  unsigned long filesize;
-  struct stat statebuff;
+  pid_t pid;				/* process ID*/
+  fd_set descset;			/* file descriptor set for select()*/
+  int val;					/* temp variable*/
+  FILE *file;				/* pointer to file*/
+  unsigned long filesize;	/* file size*/
+  struct stat statebuff;	/* file state, used to measure file size*/
   char filename[MAX_FNAME_SIZE];
   int send_size;
   /* Initialize variables                                               */
@@ -147,7 +147,6 @@ int main(int argc, char *argv[])
   else
   {
     port = PROTOPORT;
-    printf("%d\n", port);
   }
   if (port > 0)
   {
@@ -166,7 +165,6 @@ int main(int argc, char *argv[])
   else
   {
   	port6 = PROROPORT6;
-  	printf("%d\n", port6);
   }
   if (port6 > 0)
   {
@@ -193,7 +191,6 @@ int main(int argc, char *argv[])
     free(echobuf);
     exit(1);
   }
-  printf("%d\n", tcpptrp->p_proto);
   tcpsd = socket(AF_INET, SOCK_STREAM, tcpptrp->p_proto);
   tcpsd6 = socket(AF_INET6, SOCK_STREAM, tcpptrp->p_proto);
   if (tcpsd < 0)
@@ -264,7 +261,7 @@ int main(int argc, char *argv[])
   {
     printf("ERROR setting MTU DISCOVER option for tcp A(ipv6)\n");
   }
-  /* Main server loop - accept and handle requests                     */
+ 
 
   /* Define the descriptor set for select, unset all descriptors       */
   /* determine the largest descriptor in use                           */
@@ -274,7 +271,7 @@ int main(int argc, char *argv[])
 
   /* Repeatedly check each socket for arriving data                     */
   /* On each pass through the for loop do each of the following:        */
-  /* --- set the descriptors for the TCP and UDP sockets in descset     */
+  /* --- set the descriptors for the TCP  sockets in descset     */
   /* --- check each socket for TCP connection requests or UDP data      */
   /* --- process TCP connection requests or incoming UDP data           */
   val = IP_PMTUDISC_DONT;
@@ -288,8 +285,10 @@ int main(int argc, char *argv[])
     printf("ERROR setting MTU DISCOVER option B(ipv6)");
   }
   printf("proceed to listening\n");
+   /* Main server loop - accept and handle requests                     */
   for (;;)
   {
+  	/* set all desciptors */
     FD_SET(tcpsd, &descset);
 	FD_SET(tcpsd6, &descset);
     if ((retval = select(maxfdp1, &descset, NULL, NULL, &tval)) < 0)
@@ -313,11 +312,12 @@ int main(int argc, char *argv[])
         printf("retval 0\n");
       }
     }
-
+    
     if ((pid = waitpid(-1, NULL, WNOHANG)) > 0)
     {
       /*printf("child process %d terminated \n", pid);*/
     }
+    /*determine which protocol the incoming message is using, ipv4 or ipv6*/
 	if (FD_ISSET(tcpsd, &descset))
 	{
 		flag = 4;
@@ -325,7 +325,8 @@ int main(int argc, char *argv[])
 	{
 		flag = 6;
 	}
-	
+	/*if there is a readable change in one of the sockets, meaning there is a TCP request*/
+	/*start processing */
     if (FD_ISSET(tcpsd, &descset)||FD_ISSET(tcpsd6, &descset))
     { 
     printf("TCP connection request received. Version : %d\n", flag);
@@ -357,7 +358,6 @@ int main(int argc, char *argv[])
         	connfd = accept(tcpsd6, (struct sockaddr *)&cad6, &len6);
         }
         /* close listening sockets                                  */
-        printf("%d\n",flag);
         close(tcpsd);
         close(tcpsd6);
         tval.tv_sec = 5;
