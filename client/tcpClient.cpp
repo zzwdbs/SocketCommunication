@@ -28,10 +28,17 @@ void safeExit(FILE* outfile, char* sendbuf, char* recvbuf, int code);
 /*------------------------------------------------------------------------
  * Program:   tcpClient
  *
- * Purpose:   allocate a socket, connect to a server, open a file, 
- *            send the contents of the file through the socket to the
- *            echo server, read the echoed data from the socket and 
- *            write it into an output file
+ * Purpose:   Create a TCP connection to server and download a file that has
+ *            the given file name.
+ *
+ * Principle: 1. Create a TCP socket. Type is given by command-line argument
+ *           2. Connect a server using this socket. Send 
+ *               first message that contains requested file name.
+ *            3. Check server's reply, if requested file does not exist, 
+ *                abandon the process and exit. Otherwise proceed to 4.
+ *            4. Create a file with the given file name.
+ *            5. Receive packet from server, extract the content and write
+ *                to the file.
  *
  * Syntax:    tcpClient [[[[host [port]] [hostl]] [outfile]] [lenbuf]] 
  *       host        - name of a host on which server is executing
